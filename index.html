@@ -2,9 +2,9 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>🎅 Christmas Tetris 🎄</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     html, body {
       margin: 0;
@@ -142,8 +142,238 @@
   </audio>
 
   <script>
-    // Die komplette Spiellogik ist identisch mit vorherigem Beispiel (gekürzt hier aus Platzgründen)
-    // Du kannst sie wieder einsetzen oder vollständig von mir nachreichen lassen.
+    const canvas = document.getElementById('tetris');
+    const ctx = canvas.getContext('2d');
+    const scale = 20;
+    const columns = 10;
+    const rows = 20;
+
+    canvas.width = columns * scale;
+    canvas.height = rows * scale;
+
+    let dropCounter = 0;
+    let dropInterval = 1000;
+    let lastTime = 0;
+    let score = 0;
+    let level = 1;
+    let musicStarted = false;
+
+    const music = document.getElementById('bg-music');
+
+    const arena = createMatrix(columns, rows);
+    const colors = [
+      null,
+      '#FF0000', '#00FF00', '#FFD700', '#FFFFFF',
+      '#FF69B4', '#FFA500', '#ADD8E6'
+    ];
+
+    const player = {
+      pos: {x: 0, y: 0},
+      matrix: null
+    };
+
+    function createMatrix(w, h) {
+      const matrix = [];
+      while (h--) matrix.push(new Array(w).fill(0));
+      return matrix;
+    }
+
+    function createPiece(type) {
+      switch (type) {
+        case 'T': return [[0,1,0],[1,1,1],[0,0,0]];
+        case 'O': return [[2,2],[2,2]];
+        case 'L': return [[0,0,3],[3,3,3],[0,0,0]];
+        case 'J': return [[4,0,0],[4,4,4],[0,0,0]];
+        case 'I': return [[0,5,0,0],[0,5,0,0],[0,5,0,0],[0,5,0,0]];
+        case 'S': return [[0,6,6],[6,6,0],[0,0,0]];
+        case 'Z': return [[7,7,0],[0,7,7],[0,0,0]];
+      }
+    }
+
+    function drawMatrix(matrix, offset) {
+      matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (value !== 0) {
+            ctx.fillStyle = colors[value];
+            ctx.fillRect((x + offset.x) * scale, (y + offset.y) * scale, scale, scale);
+            ctx.strokeStyle = '#000';
+            ctx.strokeRect((x + offset.x) * scale, (y + offset.y) * scale, scale, scale);
+          }
+        });
+      });
+    }
+
+    function draw() {
+      ctx.fillStyle = '#001f00';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawMatrix(arena, {x:0, y:0});
+      drawMatrix(player.matrix, player.pos);
+    }
+
+    function merge(arena, player) {
+      player.matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (value !== 0) {
+            arena[y + player.pos.y][x + player.pos.x] = value;
+          }
+        });
+      });
+    }
+
+    function collide(arena, player) {
+      const m = player.matrix;
+      const o = player.pos;
+      for (let y = 0; y < m.length; ++y) {
+        for (let x = 0; x < m[y].length; ++x) {
+          if (m[y][x] !== 0 &&
+              (arena[y + o.y] &&
+               arena[y + o.y][x + o.x]) !== 0) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function playerDrop() {
+      player.pos.y++;
+      if (collide(arena, player)) {
+        player.pos.y--;
+        merge(arena, player);
+        playerReset();
+        arenaSweep();
+        updateScore();
+      }
+      dropCounter = 0;
+    }
+
+    function playerMove(dir) {
+      player.pos.x += dir;
+      if (collide(arena, player)) {
+        player.pos.x -= dir;
+      }
+    }
+
+    function playerRotate() {
+      const m = player.matrix;
+      for (let y = 0; y < m.length; ++y) {
+        for (let x = 0; x < y; ++x) {
+          [m[x][y], m[y][x]] = [m[y][x], m[x][y]];
+        }
+      }
+      m.forEach(row => row.reverse());
+      if (collide(arena, player)) {
+        for (let i = 0; i < 3; ++i) {
+          playerMove(1);
+          if (!collide(arena, player)) return;
+        }
+        m.forEach(row => row.reverse());
+        for (let y = 0; y < m.length; ++y) {
+          for (let x = 0; x < y; ++x) {
+            [m[x][y], m[y][x]] = [m[y][x], m[x][y]];
+          }
+        }
+      }
+    }
+
+    function playerReset() {
+      const pieces = 'TJLOSZI';
+      player.matrix = createPiece(pieces[Math.floor(Math.random() * pieces.length)]);
+      player.pos.y = 0;
+      player.pos.x = Math.floor((arena[0].length - player.matrix[0].length) / 2);
+      if (collide(arena, player)) {
+        document.getElementById('game-over').style.display = 'block';
+        cancelAnimationFrame(animationFrame);
+      }
+    }
+
+    function arenaSweep() {
+      let rowCount = 0;
+      outer: for (let y = arena.length -1; y >= 0; --y) {
+        for (let x = 0; x < arena[y].length; ++x) {
+          if (arena[y][x] === 0) continue outer;
+        }
+        arena.splice(y, 1);
+        arena.unshift(new Array(arena[0].length).fill(0));
+        rowCount++;
+      }
+      if (rowCount > 0) {
+        score += rowCount * 10;
+        level = 1 + Math.floor(score / 100);
+        dropInterval = 1000 - (level * 50);
+      }
+    }
+
+    function updateScore() {
+      document.getElementById('score').innerText = `Punkte: ${score} | Level: ${level}`;
+    }
+
+    let animationFrame;
+    function update(time = 0) {
+      const deltaTime = time - lastTime;
+      lastTime = time;
+      dropCounter += deltaTime;
+      if (dropCounter > dropInterval) {
+        playerDrop();
+      }
+      draw();
+      animationFrame = requestAnimationFrame(update);
+    }
+
+    document.addEventListener('keydown', event => {
+      if (!musicStarted) {
+        music.play();
+        musicStarted = true;
+      }
+      if (event.key === 'ArrowLeft') playerMove(-1);
+      else if (event.key === 'ArrowRight') playerMove(1);
+      else if (event.key === 'ArrowDown') playerDrop();
+      else if (event.key === 'ArrowUp') playerRotate();
+    });
+
+    function move(action) {
+      if (!musicStarted) {
+        music.play();
+        musicStarted = true;
+      }
+      if (action === 'left') playerMove(-1);
+      else if (action === 'right') playerMove(1);
+      else if (action === 'down') playerDrop();
+      else if (action === 'rotate') playerRotate();
+    }
+
+    function startGame() {
+      document.getElementById('game-over').style.display = 'none';
+      arena.forEach(row => row.fill(0));
+      score = 0;
+      level = 1;
+      dropInterval = 1000;
+      playerReset();
+      updateScore();
+      update();
+    }
+
+    function restart() {
+      startGame();
+    }
+
+    function toggleMusic() {
+      if (music.paused) music.play();
+      else music.pause();
+    }
+
+    // Schneeflocken-Effekt
+    function createSnowflake() {
+      const snowflake = document.createElement('div');
+      snowflake.classList.add('snowflake');
+      snowflake.style.left = Math.random() * 100 + 'vw';
+      snowflake.style.animationDuration = 2 + Math.random() * 3 + 's';
+      snowflake.innerText = '❄️';
+      document.body.appendChild(snowflake);
+      setTimeout(() => snowflake.remove(), 5000);
+    }
+
+    setInterval(createSnowflake, 300);
   </script>
 </body>
 </html>
